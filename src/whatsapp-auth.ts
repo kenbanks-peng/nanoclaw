@@ -23,6 +23,7 @@ import makeWASocket, {
 const AUTH_DIR = './store/auth';
 const QR_FILE = './store/qr-data.txt';
 const STATUS_FILE = './store/auth-status.txt';
+const MAX_RESTARTS = 5;
 
 const logger = pino({
   level: 'warn', // Quiet logging - only show errors
@@ -48,7 +49,9 @@ function askQuestion(prompt: string): Promise<string> {
 async function connectSocket(
   phoneNumber?: string,
   isReconnect = false,
+  restartCount = 0,
 ): Promise<void> {
+  let restarting = false;
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
   if (state.creds.registered && !isReconnect) {
@@ -121,11 +124,21 @@ async function connectSocket(
         fs.writeFileSync(STATUS_FILE, 'failed:qr_timeout');
         console.log('\n✗ QR code timed out. Please try again.');
         process.exit(1);
-      } else if (reason === 515) {
-        // 515 = stream error, often happens after pairing succeeds but before
-        // registration completes. Reconnect to finish the handshake.
-        console.log('\n⟳ Stream error (515) after pairing — reconnecting...');
-        connectSocket(phoneNumber, true);
+      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
+        if (restarting) {
+          return;
+        }
+        if (restartCount >= MAX_RESTARTS) {
+          console.log(`\n✗ Restart limit reached (${MAX_RESTARTS}). Please try again later.`);
+          process.exit(1);
+        }
+        restarting = true;
+        // Server requested restart — reconnect automatically
+        console.log('\n⚠ Server requested restart, reconnecting...');
+        sock.ev.removeAllListeners('connection.update');
+        sock.ev.removeAllListeners('creds.update');
+        sock.end?.(undefined);
+        return connectSocket(phoneNumber, true, restartCount + 1);
       } else {
         fs.writeFileSync(STATUS_FILE, `failed:${reason || 'unknown'}`);
         console.log('\n✗ Connection failed. Please try again.');
