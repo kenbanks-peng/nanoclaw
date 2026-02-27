@@ -124,12 +124,17 @@ async function connectSocket(
         fs.writeFileSync(STATUS_FILE, 'failed:qr_timeout');
         console.log('\n✗ QR code timed out. Please try again.');
         process.exit(1);
-      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
+      } else if (
+        reason === DisconnectReason.restartRequired ||
+        reason === 515
+      ) {
         if (restarting) {
           return;
         }
         if (restartCount >= MAX_RESTARTS) {
-          console.log(`\n✗ Restart limit reached (${MAX_RESTARTS}). Please try again later.`);
+          console.log(
+            `\n✗ Restart limit reached (${MAX_RESTARTS}). Please try again later.`,
+          );
           process.exit(1);
         }
         restarting = true;
